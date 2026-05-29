@@ -1,0 +1,13 @@
+DATABASE_URL=<Database url>
+DATABASE_USERNAME=<Database password>
+DATABASE_PASSWORD=<Database Password>
+DATABASE_HOST=<Database host>
+DATABASE_NAME=<Database name>
+REDIS_URL=<Redis Url, for local or docker>
+
+SOCKETIO_CORS_ORIGINS="*"
+SOCKETIO_USE_REDIS=False
+SOCKETIO_REDIS_URL="redis://localhost:6379"
+SOCKETIO_PING_TIMEOUT=25
+SOCKETIO_PING_INTERVAL=5
+

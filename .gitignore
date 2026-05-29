@@ -149,3 +149,5 @@ Uploaded files/
 docker-compose.yml
 Dockerfile
 .junie/
+docs/
+vector_store/
