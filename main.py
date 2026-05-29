@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import user_endpoints, refresh_token_lifecycle_endpoint, file_upload_endpoint
+from app.api.v1 import user_endpoints, refresh_token_lifecycle_endpoint, file_upload_endpoint, chat_endpoint
 from app.exceptions.exceptions import add_exception_handlers
 
 
@@ -20,7 +20,7 @@ app.add_middleware(
 add_exception_handlers(app=app)
 app.include_router(user_endpoints.router)
 app.include_router(file_upload_endpoint.router)
-# app.include_router(user_questions_endpoint.router)
+app.include_router(chat_endpoint.router)
 app.include_router(refresh_token_lifecycle_endpoint.router)
 
 

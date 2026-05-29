@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from app.models.base_declarative_model import BaseDeclarativeModel
+from app.models.chat_room_model import ChatRoom
 
 
 class FileUploadModel(Base, BaseDeclarativeModel):
@@ -16,3 +17,4 @@ class FileUploadModel(Base, BaseDeclarativeModel):
 
     # Relationships
     user = relationship("User", back_populates="file_upload")
+    chat_room = relationship("ChatRoom", back_populates="file")

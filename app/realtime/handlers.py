@@ -9,6 +9,7 @@ from app.rag.retriever import get_retriever
 from app.rag.chain import build_rag_chain
 from app.core.database import get_transaction_session, AsyncSessionLocal
 from app.repositories.file_upload import get_upload_file_history_by_id
+from app.utils.socket_validations import validate_socket_session_data, validate_question_data
 
 logger = logging.getLogger("app.realtime.handlers")
 
@@ -53,15 +54,11 @@ async def join_channel(sid, data):
     """
     Allows an authenticated user to join a room/channel.
     """
-    session = await sio.get_session(sid)
+    session = await validate_socket_session_data(sid, data, sio)
+
     if not session:
-        await sio.emit("error", {"message": "Unauthorized. Please authenticate first."}, to=sid)
-        return
-        
-    if not isinstance(data, dict):
-        await sio.emit("error", {"message": "Invalid data payload. Must be a JSON object."}, to=sid)
-        return
-        
+        return # Validation function already emitted error response
+
     channel_id = data.get("channel_id")
     if not channel_id:
         await sio.emit("error", {"message": "Missing channel_id"}, to=sid)
@@ -107,25 +104,16 @@ async def ask_question(sid, data):
     
     Enhanced to support request_id for frontend message matching.
     """
-    session = await sio.get_session(sid)
+    session = await validate_socket_session_data(sid, data, sio)
+
     if not session:
-        await sio.emit("error", {"message": "Unauthorized. Please authenticate first."}, to=sid)
-        return
+        return  # Validation function already emitted error response
         
-    if not isinstance(data, dict):
-        await sio.emit("error", {"message": "Invalid data payload. Must be a JSON object."}, to=sid)
-        return
-        
-    question = data.get("question")
-    file_id = data.get("file_id")
+
     request_id = data.get("request_id")  # NEW: Message ID from frontend
-    
-    if not question:
-        await sio.emit("error", {"message": "Missing 'question' in payload."}, to=sid)
-        return
-        
-    if not file_id:
-        await sio.emit("error", {"message": "Missing 'file_id' in payload."}, to=sid)
+    file_id, question = await validate_question_data(data, sio, sid)
+
+    if not file_id or not question:
         return
 
     async with get_transaction_session(AsyncSessionLocal) as db_session:
@@ -136,12 +124,7 @@ async def ask_question(sid, data):
             return  # NEW: Add return to prevent further execution
 
     user_id = session["user_id"]
-    logger.info(
-        f"RAG question request via Socket.IO: "
-        f"user_id={user_id}, file_id={file_id}, "
-        f"request_id={request_id}, question='{question}'"
-    )
-    
+
     try:
         # Build the RAG chain dynamically
         retriever = get_retriever(file_id, user_id)
