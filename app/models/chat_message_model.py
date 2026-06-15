@@ -1,10 +1,14 @@
+import enum
 from uuid import uuid4
-
-from sqlalchemy import Column, UUID, ForeignKey, Text, String
+from sqlalchemy import Column, UUID, ForeignKey, Text, String, Enum
 from sqlalchemy.orm import relationship
-
 from app.core.database import Base
 from app.models.base_declarative_model import BaseDeclarativeModel
+
+class ChatSenderEnum(enum.Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
 
 class ChatMessage(Base, BaseDeclarativeModel):
     __tablename__ = "chat_message"
@@ -18,8 +22,7 @@ class ChatMessage(Base, BaseDeclarativeModel):
         index=True
     )
 
-    sender = Column(String, nullable=False)
-    # user / assistant / system
+    sender =Column(Enum(ChatSenderEnum, name = 'chat_sender_enum'), nullable=False)
 
     message = Column(Text, nullable=False)
 

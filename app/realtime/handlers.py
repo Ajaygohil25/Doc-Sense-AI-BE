@@ -111,9 +111,11 @@ async def ask_question(sid, data):
         
 
     request_id = data.get("request_id")  # NEW: Message ID from frontend
+    chat_room_id = data.get("chat_room_id")
     file_id, question = await validate_question_data(data, sio, sid)
 
-    if not file_id or not question:
+    if not file_id or not question or not chat_room_id:
+        await sio.emit("error", {"message": "Missing required data"}, to=sid)
         return
 
     async with get_transaction_session(AsyncSessionLocal) as db_session:
@@ -133,8 +135,7 @@ async def ask_question(sid, data):
         
         # Invoke the chain in a background thread to prevent event loop blocking
         response = await asyncio.to_thread(chain.invoke, question)
-        
-        # NEW: Echo request_id for frontend matching
+
         response_payload = {
             "file_id": file_id,
             "question": question,
@@ -153,7 +154,9 @@ async def ask_question(sid, data):
             event="question_response",
             data=response_payload,
         )
-        
+
+
+
         logger.info(
             f"RAG question resolved via Socket.IO: "
             f"user_id={user_id}, file_id={file_id}, "
