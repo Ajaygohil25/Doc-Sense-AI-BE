@@ -8,6 +8,7 @@ from app.realtime.auth import authenticate_socket
 from app.rag.retriever import get_retriever
 from app.rag.chain import build_rag_chain
 from app.core.database import get_transaction_session, AsyncSessionLocal
+from app.repositories.chat_repository import get_default_chat_room
 from app.repositories.file_upload import get_upload_file_history_by_id
 from app.utils.socket_validations import validate_socket_session_data, validate_question_data
 
@@ -113,13 +114,18 @@ async def ask_question(sid, data):
     request_id = data.get("request_id")  # NEW: Message ID from frontend
     chat_room_id = data.get("chat_room_id")
     file_id, question = await validate_question_data(data, sio, sid)
+    user_id = session["user_id"]
+    default_chat_room = None
 
-    if not file_id or not question or not chat_room_id:
+    if not file_id or not question:
         await sio.emit("error", {"message": "Missing required data"}, to=sid)
         return
 
     async with get_transaction_session(AsyncSessionLocal) as db_session:
         file = await get_upload_file_history_by_id(db_session, file_id)
+
+        if not chat_room_id:
+            default_chat_room_id = await get_default_chat_room(db_session, file_id, user_id)
 
         if not file:
             await sio.emit("error", {"message": "File not found."}, to=sid)
@@ -154,8 +160,6 @@ async def ask_question(sid, data):
             event="question_response",
             data=response_payload,
         )
-
-
 
         logger.info(
             f"RAG question resolved via Socket.IO: "
