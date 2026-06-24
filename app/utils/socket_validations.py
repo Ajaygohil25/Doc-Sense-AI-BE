@@ -1,18 +1,39 @@
-async def validate_socket_session_data(sid, data, sio):
-    session = await sio.get_session(sid)
-    if not session:
-        await sio.emit("error", {"message": "Unauthorized. Please authenticate first."}, to=sid)
-        return
-
-    if not isinstance(data, dict):
-        await sio.emit("error", {"message": "Invalid data payload. Must be a JSON object."}, to=sid)
-        return
-
-    return session
-
-
 import re
 from typing import Tuple, Optional
+
+from app.core.constants import FAILED_STATUS
+
+
+def socket_error_payload(message: str, code: str = "VALIDATION_ERROR") -> dict:
+    return {
+        "status": FAILED_STATUS,
+        "code": code,
+        "message": message,
+    }
+
+
+async def validate_socket_session_data(sid, data, sio, emit_error: bool = True):
+    session = await sio.get_session(sid)
+    if not session:
+        error = socket_error_payload(
+            "Unauthorized. Please authenticate first.",
+            code="UNAUTHORIZED",
+        )
+        if emit_error:
+            await sio.emit("error", error, to=sid)
+        return None, error
+
+    if not isinstance(data, dict):
+        error = socket_error_payload(
+            "Invalid data payload. Must be a JSON object.",
+            code="INVALID_PAYLOAD",
+        )
+        if emit_error:
+            await sio.emit("error", error, to=sid)
+        return None, error
+
+    return session, None
+
 
 
 def is_injection_attempt(user_query: str) -> Tuple[bool, Optional[str]]:
@@ -67,22 +88,24 @@ def is_injection_attempt(user_query: str) -> Tuple[bool, Optional[str]]:
 
     return False, None
 
-async def validate_question_data(data, sio, sid):
+async def validate_question_data(data):
     question = data.get("question")
     file_id = data.get("file_id")
 
-    if not question:
-        await sio.emit("error", {"message": "Missing 'question' in payload."}, to=sid)
-        return None, None
+    if not isinstance(question, str) or not question.strip():
+        return file_id, None, socket_error_payload(
+            "Missing or invalid 'question' in payload."
+        )
 
     is_suspicious, reason = is_injection_attempt(question)
 
     if is_suspicious:
-        await sio.emit("error", {"message": f"I can only answer questions based on the uploaded documents. {reason}"}, to=sid)
-        return None, None
+        return file_id, question, socket_error_payload(
+            f"I can only answer questions based on the uploaded documents. {reason}",
+            code="QUESTION_REJECTED",
+        )
 
     if not file_id:
-        await sio.emit("error", {"message": "Missing 'file_id' in payload."}, to=sid)
-        return None, None
+        return None, question, socket_error_payload("Missing 'file_id' in payload.")
 
-    return question, file_id
+    return file_id, question, None

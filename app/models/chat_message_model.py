@@ -22,7 +22,7 @@ class ChatMessage(Base, BaseDeclarativeModel):
         index=True
     )
 
-    sender =Column(Enum(ChatSenderEnum, name = 'chat_sender_enum'), nullable=False)
+    sender = Column(Enum(ChatSenderEnum, name = 'chat_sender_enum'), nullable=False)
 
     message = Column(Text, nullable=False)
 

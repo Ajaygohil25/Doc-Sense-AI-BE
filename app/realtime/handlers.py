@@ -8,9 +8,16 @@ from app.realtime.auth import authenticate_socket
 from app.rag.retriever import get_retriever
 from app.rag.chain import build_rag_chain
 from app.core.database import get_transaction_session, AsyncSessionLocal
-from app.repositories.chat_repository import get_default_chat_room
+from app.repositories.chat_repository import (
+    get_default_chat_room,
+    store_question_and_its_response_to_chat_message_model,
+)
 from app.repositories.file_upload import get_upload_file_history_by_id
-from app.utils.socket_validations import validate_socket_session_data, validate_question_data
+from app.utils.socket_validations import (
+    socket_error_payload,
+    validate_question_data,
+    validate_socket_session_data,
+)
 
 logger = logging.getLogger("app.realtime.handlers")
 
@@ -55,10 +62,10 @@ async def join_channel(sid, data):
     """
     Allows an authenticated user to join a room/channel.
     """
-    session = await validate_socket_session_data(sid, data, sio)
+    session, validation_error = await validate_socket_session_data(sid, data, sio)
 
-    if not session:
-        return # Validation function already emitted error response
+    if validation_error:
+        return  # Validation function already emitted error response
 
     channel_id = data.get("channel_id")
     if not channel_id:
@@ -105,31 +112,71 @@ async def ask_question(sid, data):
     
     Enhanced to support request_id for frontend message matching.
     """
-    session = await validate_socket_session_data(sid, data, sio)
+    session, validation_error = await validate_socket_session_data(
+        sid,
+        data,
+        sio,
+        emit_error=False,
+    )
 
-    if not session:
-        return  # Validation function already emitted error response
+    if validation_error:
+        await sio.emit("error", validation_error, to=sid)
+        return
         
 
     request_id = data.get("request_id")  # NEW: Message ID from frontend
     chat_room_id = data.get("chat_room_id")
-    file_id, question = await validate_question_data(data, sio, sid)
+    file_id, question, question_validation_error = await validate_question_data(data)
     user_id = session["user_id"]
-    default_chat_room = None
-
-    if not file_id or not question:
-        await sio.emit("error", {"message": "Missing required data"}, to=sid)
-        return
+    effective_chat_room_id = chat_room_id
 
     async with get_transaction_session(AsyncSessionLocal) as db_session:
-        file = await get_upload_file_history_by_id(db_session, file_id)
+        file = await get_upload_file_history_by_id(db_session, file_id) if file_id else None
 
-        if not chat_room_id:
-            default_chat_room_id = await get_default_chat_room(db_session, file_id, user_id)
+        if file_id and not chat_room_id:
+            default_chat_room = await get_default_chat_room(db_session, file_id, user_id)
+            effective_chat_room_id = default_chat_room.id if default_chat_room else None
+
+        if question_validation_error:
+            if question and effective_chat_room_id:
+                await store_question_and_its_response_to_chat_message_model(
+                    db_session,
+                    effective_chat_room_id,
+                    question,
+                    question_validation_error["message"],
+                )
+
+            await sio.emit(
+                "error",
+                with_request_id(question_validation_error, request_id),
+                to=sid,
+            )
+            return
 
         if not file:
-            await sio.emit("error", {"message": "File not found."}, to=sid)
+            await sio.emit(
+                "error",
+                with_request_id(
+                    socket_error_payload("File not found.", code="FILE_NOT_FOUND"),
+                    request_id,
+                ),
+                to=sid,
+            )
             return  # NEW: Add return to prevent further execution
+
+        if not effective_chat_room_id:
+            await sio.emit(
+                "error",
+                with_request_id(
+                    socket_error_payload(
+                        "Chat room not found.",
+                        code="CHAT_ROOM_NOT_FOUND",
+                    ),
+                    request_id,
+                ),
+                to=sid,
+            )
+            return
 
     user_id = session["user_id"]
 
@@ -147,7 +194,17 @@ async def ask_question(sid, data):
             "question": question,
             "response": response
         }
-        
+        stored_response = response if isinstance(response, str) else str(response)
+
+        # Store question and its response to db
+        async with get_transaction_session(AsyncSessionLocal) as db_session:
+            await store_question_and_its_response_to_chat_message_model(
+                db_session,
+                effective_chat_room_id,
+                question,
+                stored_response,
+            )
+
         # Include request_id if provided
         if request_id:
             response_payload["request_id"] = request_id
@@ -175,12 +232,25 @@ async def ask_question(sid, data):
         )
         await sio.emit(
             "error", 
-            {"message": f"Failed to generate response: {str(e)}"}, 
+            with_request_id(
+                socket_error_payload(
+                    f"Failed to generate response: {str(e)}",
+                    code="RAG_RESPONSE_FAILED",
+                ),
+                request_id,
+            ),
             to=sid
         )
 
 
 # --- Helper Functions for Server-Initiated Emits ---
+
+def with_request_id(payload: dict, request_id: str | None) -> dict:
+    if not request_id:
+        return payload
+
+    return {**payload, "request_id": request_id}
+
 
 async def emit_to_user(user_id: str, event: str, data: dict):
     """
