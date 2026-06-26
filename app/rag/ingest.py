@@ -66,6 +66,7 @@ async def ingest(
             await update_file_upload_status_repository(db, file_id, SUCCESS_STATUS)
             await create_chat_room(db, file_id, user_id)
 
+        logger.info(f"Created chat room for file_id={file_id}")
         logger.info(f"Successfully ingested {count} chunks for file_id={file_id}")
 
     except Exception as err:

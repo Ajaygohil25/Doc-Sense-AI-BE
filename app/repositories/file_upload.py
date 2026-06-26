@@ -121,7 +121,7 @@ async def update_file_upload_status_repository(db: AsyncSession, file_id, status
             return None
 
         file_upload.status = status
-        await db.commit()
+        await db.flush()
         return file_upload
 
     except Exception as e:

@@ -1,4 +1,7 @@
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 import pytest_asyncio
 import socketio
@@ -160,17 +163,35 @@ async def test_room_broadcast(realtime_server, user_token, create_user):
 @pytest.mark.asyncio
 async def test_ask_question_rag(realtime_server, user_token, create_user):
     """
-    Verifies that a user can ask a RAG question via Socket.IO and receives the reply.
+    Verifies that a user can ask a RAG question via Socket.IO and receives streamed chunks.
     """
-    from unittest.mock import patch, MagicMock
-    
     sio_client = socketio.AsyncClient()
     replies = []
+    stream_starts = []
+    stream_chunks = []
+    stream_ends = []
     errors = []
     
+    class MockStreamingChain:
+        async def astream(self, question):
+            for chunk in ("Mocked ", "RAG response ", "answer"):
+                yield chunk
+
     @sio_client.on("question_response")
     def on_reply(data):
         replies.append(data)
+
+    @sio_client.on("question_response_start")
+    def on_stream_start(data):
+        stream_starts.append(data)
+
+    @sio_client.on("question_response_chunk")
+    def on_stream_chunk(data):
+        stream_chunks.append(data)
+
+    @sio_client.on("question_response_end")
+    def on_stream_end(data):
+        stream_ends.append(data)
         
     @sio_client.on("error")
     def on_error(data):
@@ -185,21 +206,77 @@ async def test_ask_question_rag(realtime_server, user_token, create_user):
     # Mock retriever, model, and chain to run completely locally without network/Hugging Face
     mock_retriever = MagicMock()
     mock_model = MagicMock()
-    mock_chain = MagicMock()
-    mock_chain.invoke.return_value = "Mocked RAG response answer"
+    mock_chain = MockStreamingChain()
+    mock_file = SimpleNamespace(id="dummy_file_id", uploaded_by=str(create_user.id))
+    mock_chat_room = SimpleNamespace(id="dummy_chat_room_id")
     
     with patch("app.realtime.handlers.get_retriever", return_value=mock_retriever), \
          patch("app.realtime.handlers.get_chat_model", return_value=mock_model), \
-         patch("app.realtime.handlers.build_rag_chain", return_value=mock_chain):
+         patch("app.realtime.handlers.build_rag_chain", return_value=mock_chain), \
+         patch("app.realtime.handlers.get_upload_file_history_by_id", new=AsyncMock(return_value=mock_file)), \
+         patch("app.realtime.handlers.get_chat_room_for_file_and_user", new=AsyncMock(return_value=mock_chat_room)), \
+         patch("app.realtime.handlers.store_question_and_its_response_to_chat_message_model", new=AsyncMock()):
          
-        await sio_client.emit("ask_question", {"file_id": "dummy_file_id", "question": "What is life?"})
+        await sio_client.emit("ask_question", {
+            "file_id": "dummy_file_id",
+            "chat_room_id": "dummy_chat_room_id",
+            "question": "What is life?",
+            "request_id": "request-1",
+        })
         await asyncio.sleep(0.5)
         
     assert len(errors) == 0
+    assert len(stream_starts) == 1
+    assert stream_starts[0]["file_id"] == "dummy_file_id"
+    assert stream_starts[0]["chat_room_id"] == "dummy_chat_room_id"
+    assert stream_starts[0]["request_id"] == "request-1"
+    assert [event["chunk"] for event in stream_chunks] == ["Mocked ", "RAG response ", "answer"]
+    assert len(stream_ends) == 1
+    assert stream_ends[0]["response"] == "Mocked RAG response answer"
+    assert stream_ends[0]["chat_room_id"] == "dummy_chat_room_id"
     assert len(replies) == 1
     assert replies[0]["file_id"] == "dummy_file_id"
+    assert replies[0]["chat_room_id"] == "dummy_chat_room_id"
     assert replies[0]["question"] == "What is life?"
     assert replies[0]["response"] == "Mocked RAG response answer"
     
     await sio_client.disconnect()
 
+
+@pytest.mark.asyncio
+async def test_ask_question_rejects_mismatched_chat_room(realtime_server, user_token, create_user):
+    """
+    Verifies that Socket.IO questions cannot target a chat room outside the selected file/user scope.
+    """
+    sio_client = socketio.AsyncClient()
+    errors = []
+
+    @sio_client.on("error")
+    def on_error(data):
+        errors.append(data)
+
+    await sio_client.connect(
+        realtime_server,
+        socketio_path="socket.io",
+        auth={"token": user_token}
+    )
+
+    mock_file = SimpleNamespace(id="dummy_file_id", uploaded_by=str(create_user.id))
+
+    with patch("app.realtime.handlers.get_upload_file_history_by_id", new=AsyncMock(return_value=mock_file)), \
+         patch("app.realtime.handlers.get_chat_room_for_file_and_user", new=AsyncMock(return_value=None)):
+
+        await sio_client.emit("ask_question", {
+            "file_id": "dummy_file_id",
+            "chat_room_id": "wrong_room_id",
+            "question": "What is life?",
+            "request_id": "request-mismatch",
+        })
+        await asyncio.sleep(0.2)
+
+    assert len(errors) == 1
+    assert errors[0]["code"] == "CHAT_ROOM_NOT_FOUND"
+    assert errors[0]["chat_room_id"] == "wrong_room_id"
+    assert errors[0]["request_id"] == "request-mismatch"
+
+    await sio_client.disconnect()
