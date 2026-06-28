@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,19 @@ import socketio
 import uvicorn
 from main import socket_app
 from app.config.env_config import settings
+from app.realtime.auth import _strip_bearer_prefix, _get_first_query_value
+
+
+def test_socket_auth_strips_bearer_prefix():
+    assert _strip_bearer_prefix("Bearer token-value") == "token-value"
+    assert _strip_bearer_prefix("token-value") == "token-value"
+    assert _strip_bearer_prefix("   ") is None
+
+
+def test_socket_auth_reads_query_token_values():
+    environ = {"QUERY_STRING": "transport=websocket&access_token=query-token"}
+
+    assert _get_first_query_value(environ, "token", "access_token") == "query-token"
 
 @pytest_asyncio.fixture(scope="module")
 async def realtime_server(test_db):
@@ -170,6 +184,7 @@ async def test_ask_question_rag(realtime_server, user_token, create_user):
     stream_starts = []
     stream_chunks = []
     stream_ends = []
+    chat_messages = []
     errors = []
     
     class MockStreamingChain:
@@ -192,6 +207,10 @@ async def test_ask_question_rag(realtime_server, user_token, create_user):
     @sio_client.on("question_response_end")
     def on_stream_end(data):
         stream_ends.append(data)
+
+    @sio_client.on("chat_message_created")
+    def on_chat_message_created(data):
+        chat_messages.append(data)
         
     @sio_client.on("error")
     def on_error(data):
@@ -209,13 +228,22 @@ async def test_ask_question_rag(realtime_server, user_token, create_user):
     mock_chain = MockStreamingChain()
     mock_file = SimpleNamespace(id="dummy_file_id", uploaded_by=str(create_user.id))
     mock_chat_room = SimpleNamespace(id="dummy_chat_room_id")
+
+    async def mock_store_chat_message(db_session, chat_room_id, sender, message):
+        return SimpleNamespace(
+            id=f"{sender.value}-message-id",
+            room_id=chat_room_id,
+            sender=sender,
+            message=message,
+            created_at=datetime(2026, 6, 26, 12, 0, 0),
+        )
     
     with patch("app.realtime.handlers.get_retriever", return_value=mock_retriever), \
          patch("app.realtime.handlers.get_chat_model", return_value=mock_model), \
          patch("app.realtime.handlers.build_rag_chain", return_value=mock_chain), \
          patch("app.realtime.handlers.get_upload_file_history_by_id", new=AsyncMock(return_value=mock_file)), \
          patch("app.realtime.handlers.get_chat_room_for_file_and_user", new=AsyncMock(return_value=mock_chat_room)), \
-         patch("app.realtime.handlers.store_question_and_its_response_to_chat_message_model", new=AsyncMock()):
+         patch("app.realtime.handlers.store_chat_message", new=AsyncMock(side_effect=mock_store_chat_message)):
          
         await sio_client.emit("ask_question", {
             "file_id": "dummy_file_id",
@@ -226,6 +254,11 @@ async def test_ask_question_rag(realtime_server, user_token, create_user):
         await asyncio.sleep(0.5)
         
     assert len(errors) == 0
+    assert len(chat_messages) == 1
+    assert chat_messages[0]["sender"] == "user"
+    assert chat_messages[0]["message"] == "What is life?"
+    assert chat_messages[0]["chat_room_id"] == "dummy_chat_room_id"
+    assert chat_messages[0]["request_id"] == "request-1"
     assert len(stream_starts) == 1
     assert stream_starts[0]["file_id"] == "dummy_file_id"
     assert stream_starts[0]["chat_room_id"] == "dummy_chat_room_id"

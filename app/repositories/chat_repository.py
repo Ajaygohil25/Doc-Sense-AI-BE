@@ -81,16 +81,8 @@ async def get_default_chat_room(db, file_id, user_id):
 
 async def store_question_and_its_response_to_chat_message_model(db_session, chat_room_id, question, response):
     try:
-        user_message = ChatMessage(
-            room_id=chat_room_id,
-            sender=ChatSenderEnum.USER,
-            message=question,
-        )
-        assistant_message = ChatMessage(
-            room_id=chat_room_id,
-            sender=ChatSenderEnum.ASSISTANT,
-            message=response,
-        )
+        user_message = build_chat_message(chat_room_id, ChatSenderEnum.USER, question)
+        assistant_message = build_chat_message(chat_room_id, ChatSenderEnum.ASSISTANT, response)
 
         db_session.add_all([user_message, assistant_message])
         await db_session.flush()
@@ -100,12 +92,47 @@ async def store_question_and_its_response_to_chat_message_model(db_session, chat
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def build_chat_message(chat_room_id, sender, message):
+    if isinstance(sender, str):
+        sender = ChatSenderEnum(sender)
+
+    return ChatMessage(
+        room_id=chat_room_id,
+        sender=sender,
+        message=message,
+    )
+
+
+async def store_chat_message(db_session, chat_room_id, sender, message):
+    try:
+        chat_message = build_chat_message(chat_room_id, sender, message)
+        db_session.add(chat_message)
+        await db_session.flush()
+        return chat_message
+    except Exception as e:
+        logger.error(f"Error storing chat message repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def get_chat_messages_by_room_id(db_session, room_id):
     try:
         select_query = await db_session.execute(
             select(ChatMessage)
             .where(ChatMessage.room_id == room_id)
             .order_by(ChatMessage.created_at.asc())
+        )
+        return select_query.scalars().all()
+    except Exception as e:
+        logger.error(f"Error fetching chat messages repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def get_last_messages_by_room_id(db_session, room_id):
+    try:
+        select_query = await db_session.execute(
+            select(ChatMessage)
+            .where(ChatMessage.room_id == room_id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(10)
         )
         return select_query.scalars().all()
     except Exception as e:
