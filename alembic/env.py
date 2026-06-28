@@ -10,6 +10,8 @@ from app.models.user_model import User
 from app.models.blacklist_token_model import BlackListToken
 from app.models.password_reset_token_model import PasswordResetTokenModel
 from app.models.file_upload_model import FileUploadModel
+from app.models.chat_room_model import ChatRoom
+from app.models.chat_message_model import ChatMessage
 
 
 

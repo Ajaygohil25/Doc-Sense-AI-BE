@@ -135,7 +135,7 @@ After setting up your environment and installing dependencies, follow these step
 #### 🔹 Start the Application
 
 ```
-uvicorn main:app --reload
+uvicorn main:socket_app --reload
 ```
 
 

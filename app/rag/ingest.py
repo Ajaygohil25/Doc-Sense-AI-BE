@@ -6,6 +6,7 @@ from app.rag.embeddings import get_embeddings
 from app.rag.retriever import DEFAULT_VECTOR_STORE_DIR
 from app.core.constants import INGESTED_STATUS, SUCCESS_STATUS, FAILED_STATUS
 from app.core.database import get_transaction_session, AsyncSessionLocal
+from app.repositories.chat_repository import create_chat_room
 from app.repositories.file_upload import update_file_upload_status_repository
 
 logger = get_logger(__name__)
@@ -15,9 +16,9 @@ from langchain_chroma import Chroma
 
 
 async def ingest(
-        pdf_path: str,
-        file_id: str,
-        user_id: str,
+        pdf_path,
+        file_id,
+        user_id,
         persist_directory: str = DEFAULT_VECTOR_STORE_DIR,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
@@ -63,7 +64,9 @@ async def ingest(
 
         async with get_transaction_session(AsyncSessionLocal) as db:
             await update_file_upload_status_repository(db, file_id, SUCCESS_STATUS)
+            await create_chat_room(db, file_id, user_id)
 
+        logger.info(f"Created chat room for file_id={file_id}")
         logger.info(f"Successfully ingested {count} chunks for file_id={file_id}")
 
     except Exception as err:
