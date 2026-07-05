@@ -6,6 +6,7 @@ from app.core.database import Base
 from app.models.base_declarative_model import BaseDeclarativeModel
 from app.models import password_reset_token_model
 from app.models.file_upload_model import FileUploadModel
+from app.models.project_model import ProjectModel
 
 class User(Base, BaseDeclarativeModel):
     __tablename__ = "users"
@@ -18,3 +19,4 @@ class User(Base, BaseDeclarativeModel):
     #relationship
     password_reset_tokens = relationship("PasswordResetTokenModel", back_populates="user")
     file_upload = relationship("FileUploadModel", back_populates="user")
+    projects = relationship("ProjectModel", back_populates="owner")

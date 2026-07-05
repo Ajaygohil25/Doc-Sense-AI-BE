@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +10,8 @@ import socketio
 import uvicorn
 from main import socket_app
 from app.config.env_config import settings
+from app.models.chat_message_model import ChatSenderEnum
+from app.realtime.services.chat_socket_service import ChatSocketService
 from app.realtime.auth import _strip_bearer_prefix, _get_first_query_value
 
 
@@ -238,12 +241,12 @@ async def test_ask_question_rag(realtime_server, user_token, create_user):
             created_at=datetime(2026, 6, 26, 12, 0, 0),
         )
     
-    with patch("app.realtime.handlers.get_retriever", return_value=mock_retriever), \
-         patch("app.realtime.handlers.get_chat_model", return_value=mock_model), \
-         patch("app.realtime.handlers.build_rag_chain", return_value=mock_chain), \
-         patch("app.realtime.handlers.get_upload_file_history_by_id", new=AsyncMock(return_value=mock_file)), \
-         patch("app.realtime.handlers.get_chat_room_for_file_and_user", new=AsyncMock(return_value=mock_chat_room)), \
-         patch("app.realtime.handlers.store_chat_message", new=AsyncMock(side_effect=mock_store_chat_message)):
+    with patch("app.realtime.services.chat_socket_service.get_retriever", return_value=mock_retriever), \
+         patch("app.realtime.services.chat_socket_service.get_chat_model", return_value=mock_model), \
+         patch("app.realtime.services.chat_socket_service.build_rag_chain", return_value=mock_chain), \
+         patch("app.realtime.services.chat_socket_service.get_upload_file_history_by_id", new=AsyncMock(return_value=mock_file)), \
+         patch("app.realtime.services.chat_socket_service.get_chat_room_for_file_and_user", new=AsyncMock(return_value=mock_chat_room)), \
+         patch("app.realtime.services.chat_socket_service.store_chat_message", new=AsyncMock(side_effect=mock_store_chat_message)):
          
         await sio_client.emit("ask_question", {
             "file_id": "dummy_file_id",
@@ -296,8 +299,8 @@ async def test_ask_question_rejects_mismatched_chat_room(realtime_server, user_t
 
     mock_file = SimpleNamespace(id="dummy_file_id", uploaded_by=str(create_user.id))
 
-    with patch("app.realtime.handlers.get_upload_file_history_by_id", new=AsyncMock(return_value=mock_file)), \
-         patch("app.realtime.handlers.get_chat_room_for_file_and_user", new=AsyncMock(return_value=None)):
+    with patch("app.realtime.services.chat_socket_service.get_upload_file_history_by_id", new=AsyncMock(return_value=mock_file)), \
+         patch("app.realtime.services.chat_socket_service.get_chat_room_for_file_and_user", new=AsyncMock(return_value=None)):
 
         await sio_client.emit("ask_question", {
             "file_id": "dummy_file_id",
@@ -313,3 +316,67 @@ async def test_ask_question_rejects_mismatched_chat_room(realtime_server, user_t
     assert errors[0]["request_id"] == "request-mismatch"
 
     await sio_client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_project_ask_question_events_include_project_id(create_user):
+    class MockStreamingChain:
+        async def astream(self, question):
+            for chunk in ("Project ", "answer"):
+                yield chunk
+
+    service = ChatSocketService()
+    project_id = "project-1"
+    room_id = "project-room-1"
+    session = {"user_id": str(create_user.id)}
+    mock_project = SimpleNamespace(id=project_id, owner_id=str(create_user.id))
+    mock_chat_room = SimpleNamespace(id=room_id)
+
+    @asynccontextmanager
+    async def fake_transaction_session(_session_factory):
+        yield MagicMock()
+
+    async def mock_store_chat_message(db_session, chat_room_id, sender, message):
+        return SimpleNamespace(
+            id=f"{sender.value}-message-id",
+            room_id=chat_room_id,
+            sender=sender,
+            message=message,
+            created_at=datetime(2026, 6, 26, 12, 0, 0),
+        )
+
+    with patch("app.realtime.services.chat_socket_service.get_project_by_id_for_user", new=AsyncMock(return_value=mock_project)), \
+         patch("app.realtime.services.chat_socket_service.get_chat_room_for_project_and_user", new=AsyncMock(return_value=mock_chat_room)), \
+         patch("app.realtime.services.chat_socket_service.get_project_retriever", return_value=MagicMock()), \
+         patch("app.realtime.services.chat_socket_service.get_chat_model", return_value=MagicMock()), \
+         patch("app.realtime.services.chat_socket_service.build_rag_chain", return_value=MockStreamingChain()), \
+         patch("app.realtime.services.chat_socket_service.store_chat_message", new=AsyncMock(side_effect=mock_store_chat_message)), \
+         patch("app.realtime.services.chat_socket_service.get_transaction_session", fake_transaction_session), \
+         patch.object(service, "fetch_previous_messages", new=AsyncMock(return_value=None)):
+        events = [
+            event async for event in service.ask_question_events(
+                {
+                    "project_id": project_id,
+                    "chat_room_id": room_id,
+                    "question": "What is in this project?",
+                    "request_id": "project-request-1",
+                },
+                session,
+            )
+        ]
+
+    event_names = [event.event for event in events]
+    assert event_names == [
+        "chat_message_created",
+        "question_response_start",
+        "question_response_chunk",
+        "question_response_chunk",
+        "question_response_end",
+        "question_response",
+    ]
+    assert events[0].data["project_id"] == project_id
+    assert events[0].data["sender"] == ChatSenderEnum.USER.value
+    assert events[1].data["project_id"] == project_id
+    assert events[-1].data["project_id"] == project_id
+    assert events[-1].data["chat_room_id"] == room_id
+    assert events[-1].data["response"] == "Project answer"

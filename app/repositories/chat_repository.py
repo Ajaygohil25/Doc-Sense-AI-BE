@@ -20,6 +20,18 @@ async def create_chat_room(db, file_id, user_id, name="Default chat"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def create_project_chat_room(db, project_id, user_id, name="Default chat"):
+    try:
+        chat_room = ChatRoom(project_id=project_id, name=name)
+        db.add(chat_room)
+        chat_room.created_by = user_id
+        await db.flush()
+        return chat_room
+    except Exception as e:
+        logger.error(f"Error in creating project chat room repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def get_chat_room_by_file_id(db, file_id, user_id):
     try:
         chat_rooms = await db.execute(
@@ -36,6 +48,22 @@ async def get_chat_room_by_file_id(db, file_id, user_id):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def get_chat_room_by_project_id(db, project_id, user_id):
+    try:
+        chat_rooms = await db.execute(
+            select(ChatRoom)
+            .where(
+                ChatRoom.project_id == project_id,
+                ChatRoom.created_by == user_id,
+            )
+            .order_by(ChatRoom.created_at.desc())
+        )
+        return chat_rooms.scalars().all()
+    except Exception as e:
+        logger.error(f"Error in getting chat room by project id repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def get_chat_room_for_file_and_user(db, room_id, file_id, user_id):
     try:
         chat_room = await db.execute(
@@ -48,6 +76,21 @@ async def get_chat_room_for_file_and_user(db, room_id, file_id, user_id):
         return chat_room.scalars().one_or_none()
     except Exception as e:
         logger.error(f"Error in getting chat room by room/file/user repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_chat_room_for_project_and_user(db, room_id, project_id, user_id):
+    try:
+        chat_room = await db.execute(
+            select(ChatRoom).where(
+                ChatRoom.id == room_id,
+                ChatRoom.project_id == project_id,
+                ChatRoom.created_by == user_id,
+            )
+        )
+        return chat_room.scalars().one_or_none()
+    except Exception as e:
+        logger.error(f"Error in getting chat room by room/project/user repository: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -77,6 +120,20 @@ async def get_default_chat_room(db, file_id, user_id):
         return chat_room.scalars().one_or_none()
     except Exception as e:
         logger.exception(f"Exception while getting default chatroom repository: {e}")
+
+
+async def get_default_project_chat_room(db, project_id, user_id):
+    try:
+        chat_room = await db.execute(
+            select(ChatRoom)
+            .where(ChatRoom.project_id == project_id)
+            .where(ChatRoom.created_by == user_id)
+            .order_by(ChatRoom.created_at.asc())
+            .limit(1)
+        )
+        return chat_room.scalars().one_or_none()
+    except Exception as e:
+        logger.exception(f"Exception while getting default project chatroom repository: {e}")
 
 
 async def store_question_and_its_response_to_chat_message_model(db_session, chat_room_id, question, response):

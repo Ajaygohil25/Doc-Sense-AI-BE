@@ -10,13 +10,14 @@ from app.models.file_upload_model import FileUploadModel
 logger = get_logger(__name__)
 
 
-async def input_file_upload_repository(file_name, db, user_id, is_on_s3_bucket):
+async def input_file_upload_repository(file_name, db, user_id, is_on_s3_bucket, project_id=None):
     try:
         file_upload = FileUploadModel(
             file_name=file_name,
             status=INITIATED_STATUS_PENDING,
             uploaded_by=user_id,
-            is_on_s3_bucket = is_on_s3_bucket
+            is_on_s3_bucket=is_on_s3_bucket,
+            project_id=project_id,
         )
         file_upload.created_by = user_id
         db.add(file_upload)
@@ -46,7 +47,7 @@ async def get_upload_file_history_repository(db: AsyncSession, user_id, limit: i
        """
     try:
         # Get total count
-        total_stmt = select(func.count(FileUploadModel.id   ))
+        total_stmt = select(func.count(FileUploadModel.id)).where(FileUploadModel.uploaded_by == user_id)
         total = (await db.execute(total_stmt)).scalar_one()
 
         # Get paginated items
@@ -93,6 +94,25 @@ async def get_upload_file_history_by_id(db: AsyncSession, upload_file_id):
     except Exception as e:
         await db.rollback()
         logger.error(f"Error in uploading file repository: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_project_files_repository(db: AsyncSession, project_id, user_id):
+    try:
+        result = await db.execute(
+            select(FileUploadModel)
+            .where(
+                FileUploadModel.project_id == project_id,
+                FileUploadModel.uploaded_by == user_id,
+            )
+            .options(joinedload(FileUploadModel.user))
+            .order_by(FileUploadModel.created_at.desc())
+        )
+        return result.scalars().all()
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error getting project files repository: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 async def update_file_upload_status_repository(db: AsyncSession, file_id, status):

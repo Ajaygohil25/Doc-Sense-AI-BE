@@ -22,7 +22,8 @@ class ChatRoomResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    file_id: UUID
+    file_id: UUID | None = None
+    project_id: UUID | None = None
     name: str
     created_at: datetime
 

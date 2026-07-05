@@ -29,6 +29,9 @@ async def test_db():
     import app.models.user_model
     import app.models.blacklist_token_model
     import app.models.file_upload_model
+    import app.models.project_model
+    import app.models.chat_room_model
+    import app.models.chat_message_model
     import app.models.password_reset_token_model
 
     async def create_all():
