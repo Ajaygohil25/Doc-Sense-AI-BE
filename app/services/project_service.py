@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import HTTPException
 
 from app.config.env_config import settings
-from app.core.constants import FILE_UPLOAD_SUCCESS
+from app.core.constants import FILE_UPLOAD_SUCCESS, UNEXPECTED_ERROR, UNEXPECTED_ERROR_MESSAGE
 from app.core.logging import get_logger
 from app.rag.chain import build_rag_chain
 from app.rag.ingest import ingest
@@ -94,7 +94,7 @@ class ProjectService:
             raise
         except Exception as e:
             logger.exception(f"Error creating project: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     async def list_projects_service(self, current_user):
         try:
@@ -109,7 +109,7 @@ class ProjectService:
             )
         except Exception as e:
             logger.exception(f"Error listing projects: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     async def get_project_detail_service(self, current_user, project_id: UUID):
         try:
@@ -127,7 +127,7 @@ class ProjectService:
             raise
         except Exception as e:
             logger.exception(f"Error getting project detail: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     async def upload_project_file_service(self, project_id: UUID, file, current_user, background_tasks):
         try:
@@ -192,7 +192,7 @@ class ProjectService:
             raise
         except Exception as e:
             logger.exception(f"Error listing project files: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     async def create_project_chat_room_service(self, current_user, project_id: UUID, payload):
         try:
@@ -209,7 +209,7 @@ class ProjectService:
             raise
         except Exception as e:
             logger.exception(f"Error creating project chat room: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     async def list_project_chat_rooms_service(self, current_user, project_id: UUID):
         try:
@@ -227,7 +227,7 @@ class ProjectService:
             raise
         except Exception as e:
             logger.exception(f"Error listing project chat rooms: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     async def get_project_chat_messages_service(self, current_user, project_id: UUID, room_id: UUID):
         try:
@@ -257,7 +257,7 @@ class ProjectService:
             raise
         except Exception as e:
             logger.exception(f"Error getting project chat messages: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     async def ask_project_question_service(self, current_user, project_id: UUID, payload):
         try:
@@ -299,7 +299,7 @@ class ProjectService:
             raise
         except Exception as e:
             logger.exception(f"Error answering project question: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail=UNEXPECTED_ERROR_MESSAGE)
 
     def _project_detail_payload(self, project):
         return ProjectDetailResponse(
