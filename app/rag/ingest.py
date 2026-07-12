@@ -19,6 +19,7 @@ async def ingest(
         pdf_path,
         file_id,
         user_id,
+        project_id=None,
         persist_directory: str = DEFAULT_VECTOR_STORE_DIR,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
@@ -40,12 +41,15 @@ async def ingest(
         chunks = splitter.split_documents(documents)
 
         for i, chunk in enumerate(chunks):
-            chunk.metadata.update({
+            metadata = {
                 "file_id": file_id,
                 "user_id": str(user_id),
                 "chunk_index": i,
                 "source": str(pdf_path),
-            })
+            }
+            if project_id:
+                metadata["project_id"] = str(project_id)
+            chunk.metadata.update(metadata)
 
         embeddings = get_embeddings()
 
@@ -64,9 +68,11 @@ async def ingest(
 
         async with get_transaction_session(AsyncSessionLocal) as db:
             await update_file_upload_status_repository(db, file_id, SUCCESS_STATUS)
-            await create_chat_room(db, file_id, user_id)
+            if not project_id:
+                await create_chat_room(db, file_id, user_id)
 
-        logger.info(f"Created chat room for file_id={file_id}")
+        if not project_id:
+            logger.info(f"Created chat room for file_id={file_id}")
         logger.info(f"Successfully ingested {count} chunks for file_id={file_id}")
 
     except Exception as err:
@@ -74,5 +80,4 @@ async def ingest(
 
         async with get_transaction_session(AsyncSessionLocal) as db:
             await update_file_upload_status_repository(db, file_id, FAILED_STATUS)
-
 

@@ -91,21 +91,24 @@ def is_injection_attempt(user_query: str) -> Tuple[bool, Optional[str]]:
 async def validate_question_data(data):
     question = data.get("question")
     file_id = data.get("file_id")
+    project_id = data.get("project_id")
 
     if not isinstance(question, str) or not question.strip():
-        return file_id, None, socket_error_payload(
+        return file_id, project_id, None, socket_error_payload(
             "Missing or invalid 'question' in payload."
+        )
+
+    if bool(file_id) == bool(project_id):
+        return file_id, project_id, question, socket_error_payload(
+            "Payload must include exactly one of 'file_id' or 'project_id'."
         )
 
     is_suspicious, reason = is_injection_attempt(question)
 
     if is_suspicious:
-        return file_id, question, socket_error_payload(
+        return file_id, project_id, question, socket_error_payload(
             f"I can only answer questions based on the uploaded documents. {reason}",
             code="QUESTION_REJECTED",
         )
 
-    if not file_id:
-        return None, question, socket_error_payload("Missing 'file_id' in payload.")
-
-    return file_id, question, None
+    return file_id, project_id, question, None
