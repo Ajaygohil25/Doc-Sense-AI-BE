@@ -49,6 +49,7 @@ class FileService:
 
             file_name = None
             file_path = None
+            s3_object_name = None
             file_id = None
             upload_file_obj = None
 
@@ -75,15 +76,22 @@ class FileService:
                 # deploy to s3
                 s3_service = S3Service()
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
+                uploaded = await loop.run_in_executor(
                     None,
                     partial(s3_service.upload_file, file.file, file_name_with_id)
                 )
+                if not uploaded:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Failed to upload PDF to S3.",
+                    )
+                s3_object_name = file_name_with_id
 
             # add embeddings create process in the background
             background_tasks.add_task(
                 ingest,
                 pdf_path = file_path,
+                s3_object_name=s3_object_name,
                 file_id = str(file_id),
                 user_id = current_user.user_id
             )

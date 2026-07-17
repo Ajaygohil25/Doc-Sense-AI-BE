@@ -8,12 +8,14 @@ logger = get_logger(__name__)
 
 class S3Service:
     def __init__(self):
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION
-        )
+        client_options = {"region_name": settings.AWS_REGION}
+        if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+            client_options.update({
+                "aws_access_key_id": settings.AWS_ACCESS_KEY_ID,
+                "aws_secret_access_key": settings.AWS_SECRET_ACCESS_KEY,
+            })
+
+        self.s3_client = boto3.client('s3', **client_options)
         self.bucket_name = settings.AWS_S3_BUCKET_NAME
 
     @check_s3_availability
@@ -143,4 +145,3 @@ class S3Service:
         except (NoCredentialsError, ClientError) as e:
             logger.exception(f"Failed to delete s3://{self.bucket_name}/{object_name}: {e}")
             return False
-

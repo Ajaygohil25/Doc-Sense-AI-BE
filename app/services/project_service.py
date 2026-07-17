@@ -150,19 +150,27 @@ class ProjectService:
             upload_file_obj.file_name = file_name_with_id
 
             file_path = None
+            s3_object_name = None
             if not is_on_s3_bucket:
                 file_path = await save_file_to_disk(file, upload_dir="Uploaded files", file_name=file_name_with_id)
             else:
                 s3_service = S3Service()
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
+                uploaded = await loop.run_in_executor(
                     None,
                     partial(s3_service.upload_file, file.file, file_name_with_id),
                 )
+                if not uploaded:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Failed to upload PDF to S3.",
+                    )
+                s3_object_name = file_name_with_id
 
             background_tasks.add_task(
                 ingest,
                 pdf_path=file_path,
+                s3_object_name=s3_object_name,
                 file_id=str(upload_file_obj.id),
                 user_id=user_id,
                 project_id=str(project_id),
